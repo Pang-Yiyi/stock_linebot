@@ -4,6 +4,7 @@ app/main.py — FastAPI 應用程式入口
 import logging
 from fastapi import FastAPI
 from app.webhook import router
+from app import database
 
 # 設定 logging
 logging.basicConfig(
@@ -16,6 +17,9 @@ app = FastAPI(
     description="整合 Gemini 2.5 Flash 與即時股價查詢的 LINE Bot",
     version="1.0.0",
 )
+
+# 初始化資料庫
+database.init_db()
 
 app.include_router(router)
 

@@ -30,6 +30,7 @@ from linebot.v3.messaging import (
 from app.config import LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN
 from app.intent import classify_intent
 from app.handlers import gemini_handler, stock_handler
+from app import database
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -109,6 +110,9 @@ async def handle_text_message(event: MessageEvent) -> None:
     text = event.message.text.strip()
     logger.info(f"收到訊息 user={user_id[:8]}... text={text[:30]}")
 
+    # 記錄使用者
+    database.upsert_user(user_id)
+
     # 意圖識別
     intent = classify_intent(text)
 
@@ -116,6 +120,14 @@ async def handle_text_message(event: MessageEvent) -> None:
         reply = await stock_handler.get_stock_message(intent["symbol"])
     else:
         reply = await gemini_handler.chat(user_id, text)
+
+    # 記錄互動紀錄
+    database.save_interaction(
+        user_id=user_id,
+        intent_type=intent["type"],
+        user_message=text,
+        bot_reply=reply
+    )
 
     # ✅ 使用 Reply Message（無限制，直接用 reply_token）
     await reply_message(event.reply_token, reply)
@@ -130,6 +142,9 @@ async def handle_follow(event: FollowEvent) -> None:
     user_id = getattr(event.source, "user_id", None)
     if not user_id:
         return
+
+    # 記錄新使用者
+    database.upsert_user(user_id)
 
     welcome = (
         "👋 歡迎使用股小智！\n\n"

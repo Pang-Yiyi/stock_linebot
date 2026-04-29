@@ -9,6 +9,11 @@ env/
 # 環境變數（絕對不能 commit）
 .env
 
+# SQLite 資料庫（執行後自動產生）
+data/bot.db
+data/*.db
+*.db
+
 # macOS
 .DS_Store
 
@@ -23,3 +28,6 @@ logs/
 # 測試快取
 .pytest_cache/
 .coverage
+
+.claude
+
