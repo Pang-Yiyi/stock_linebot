@@ -1,16 +1,17 @@
 """
 app/handlers/gemini_handler.py — Gemini AI 對話模組
-使用 google-generativeai 呼叫 Gemini 2.5 Flash，並整合對話歷史記憶。
+使用 google-genai 呼叫 Gemini 2.5 Flash，並整合對話歷史記憶。
 """
 import logging
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from app.config import GEMINI_API_KEY, GEMINI_MODEL
 from app import memory
 
 logger = logging.getLogger(__name__)
 
-# 初始化 Gemini
-genai.configure(api_key=GEMINI_API_KEY)
+# 初始化 Gemini 客戶端
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 SYSTEM_PROMPT = """你是一個專業的股票投資助理 LINE Bot，名叫「股小智」。
 你的能力：
@@ -37,15 +38,21 @@ async def chat(user_id: str, user_message: str) -> str:
         Gemini 回覆的文字
     """
     try:
-        # 取得對話歷史
-        history = memory.get_history(user_id)
+        # 取得對話歷史，轉換為 google.genai Content 格式
+        raw_history = memory.get_history(user_id)
+        history = [
+            types.Content(role=msg["role"], parts=[types.Part(text=msg["parts"][0])])
+            for msg in raw_history
+        ]
 
-        # 建立 Gemini model 與 chat session
-        model = genai.GenerativeModel(
-            model_name=GEMINI_MODEL,
-            system_instruction=SYSTEM_PROMPT,
+        # 建立 chat session
+        chat_session = client.chats.create(
+            model=GEMINI_MODEL,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+            ),
+            history=history,
         )
-        chat_session = model.start_chat(history=history)
 
         # 發送訊息並取得回覆
         response = chat_session.send_message(user_message)

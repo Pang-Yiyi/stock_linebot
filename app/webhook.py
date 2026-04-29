@@ -22,6 +22,7 @@ from linebot.v3.messaging import (
     ApiClient,
     Configuration,
     MessagingApi,
+    ReplyMessageRequest,
     PushMessageRequest,
     TextMessage,
 )
@@ -71,19 +72,22 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
 async def handle_event(event) -> None:
     """根據事件類型分發至對應的處理函式。"""
-    if isinstance(event, MessageEvent):
-        if isinstance(event.message, TextMessageContent):
-            await handle_text_message(event)
-        else:
-            # 非文字訊息（貼圖、圖片等）→ 友善提示
-            await push_message(
-                event.source.user_id,
-                "😊 目前只支援文字訊息，請輸入文字來查詢股價或聊天！"
-            )
-    elif isinstance(event, FollowEvent):
-        await handle_follow(event)
-    elif isinstance(event, UnfollowEvent):
-        logger.info(f"使用者封鎖 Bot：{event.source.user_id}")
+    try:
+        if isinstance(event, MessageEvent):
+            if isinstance(event.message, TextMessageContent):
+                await handle_text_message(event)
+            else:
+                # 非文字訊息（貼圖、圖片等）→ 友善提示
+                await reply_message(
+                    event.reply_token,
+                    "😊 目前只支援文字訊息，請輸入文字來查詢股價或聊天！"
+                )
+        elif isinstance(event, FollowEvent):
+            await handle_follow(event)
+        elif isinstance(event, UnfollowEvent):
+            logger.info(f"使用者封鎖 Bot：{event.source.user_id}")
+    except Exception as e:
+        logger.error(f"handle_event 發生錯誤：{e}", exc_info=True)
 
 
 # ─────────────────────────────────────────
@@ -95,9 +99,8 @@ async def handle_text_message(event: MessageEvent) -> None:
     處理文字訊息：
     1. 意圖識別 → 股價查詢 or AI 對話
     2. 呼叫對應模組取得回覆
-    3. 用 Push Message 回傳（背景任務中 reply_token 可能已過期）
+    3. 用 Reply Message 回傳（免費、無配額限制）
     """
-    # ✅ 防禦性取 user_id（群組場景可能為 None）
     user_id = getattr(event.source, "user_id", None)
     if not user_id:
         logger.warning("無法取得 user_id，跳過處理")
@@ -114,7 +117,8 @@ async def handle_text_message(event: MessageEvent) -> None:
     else:
         reply = await gemini_handler.chat(user_id, text)
 
-    await push_message(user_id, reply)
+    # ✅ 使用 Reply Message（無限制，直接用 reply_token）
+    await reply_message(event.reply_token, reply)
 
 
 # ─────────────────────────────────────────
@@ -144,10 +148,26 @@ async def handle_follow(event: FollowEvent) -> None:
 # 工具函式
 # ─────────────────────────────────────────
 
+async def reply_message(reply_token: str, text: str) -> None:
+    """
+    透過 LINE Reply Message API 回覆訊息（免費、無配額限制）。
+    """
+    try:
+        with ApiClient(configuration) as api_client:
+            api = MessagingApi(api_client)
+            api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=reply_token,
+                    messages=[TextMessage(text=text)],
+                )
+            )
+    except Exception as e:
+        logger.error(f"Reply Message 失敗 error={e}")
+
+
 async def push_message(user_id: str, text: str) -> None:
     """
-    透過 LINE Push Message API 發送訊息。
-    ✅ 背景任務統一使用此函式（不依賴 reply_token）
+    透過 LINE Push Message API 主動推播（FollowEvent 等無 reply_token 的場景）。
     """
     try:
         with ApiClient(configuration) as api_client:
